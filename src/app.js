@@ -14,7 +14,7 @@ function createApp() {
   app.use(cors({ origin: origins.includes('*') ? true : origins }));
   app.use(express.json({ limit: '1mb' }));
   if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));
-
+  app.get('/', (req, res) => res.json({ name: 'AutoService API', status: 'running', health: '/api/health' }));
   app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date() }));
 
   const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: Number(process.env.AUTH_RATE_LIMIT || 50), standardHeaders: true, legacyHeaders: false });
