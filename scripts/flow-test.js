@@ -112,7 +112,9 @@ const tomorrowAt = (h) => { const d = new Date(Date.now() + DAY * 86400000); d.s
   const done = await call('POST', `/jobs/${jobId}/status`, ravi, { status: 'completed' });
   ok(done.job?.status === 'completed' && done.job.price === 1775, `job completed, final price = quote 1475 + approved extra 300 (got ${done.job?.price})`);
   const after = await call('GET', `/jobs/${jobId}`, owner);
-  ok(after.payment?.status === 'captured' && Math.abs(after.payment.platformFee - after.payment.amount * 0.1) < 0.02, 'payment captured with 10% platform fee', after.payment);
+  const pm = after.payment || {};
+  ok(pm.status === 'captured' && Math.abs(pm.mechanicFee - pm.amount * 0.1) < 0.02 && Math.abs(pm.ownerFee - pm.amount * 0.05) < 0.02, 'payment captured with 5% owner booking fee and 10% mechanic sourcing fee', pm);
+  ok(Math.abs(pm.platformFee - (pm.ownerFee + pm.mechanicFee)) < 0.02 && Math.abs(pm.totalCharged - (pm.amount + pm.ownerFee)) < 0.02 && Math.abs(pm.payout - (pm.amount - pm.mechanicFee)) < 0.02, 'fee split adds up (platform revenue, owner total, mechanic payout)', pm);
   const earn = await call('GET', '/mechanics/me/earnings', ravi);
   ok(earn.pendingPayout > 0, 'mechanic sees pending payout');
 

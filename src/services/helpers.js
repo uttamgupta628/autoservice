@@ -24,4 +24,20 @@ function maskLocation(job) {
   return j;
 }
 
-module.exports = { getSettings, notify, audit, round2, maskLocation };
+/**
+ * Fee model (client brief):
+ *   owner booking fee   5% to 10% of the job value, added on top of what the owner pays
+ *   mechanic sourcing   10% of the job value, deducted from the mechanic's payout
+ */
+const OWNER_FEE_MIN = 0.05;
+const OWNER_FEE_MAX = 0.1;
+const clampOwnerFee = (r) => Math.min(OWNER_FEE_MAX, Math.max(OWNER_FEE_MIN, Number(r) || OWNER_FEE_MIN));
+function computeFees(price, { ownerFeeRate, platformFeeRate }) {
+  const oRate = clampOwnerFee(ownerFeeRate);
+  const mRate = Number.isFinite(Number(platformFeeRate)) ? Number(platformFeeRate) : 0.1;
+  const ownerFee = round2(price * oRate);
+  const mechanicFee = round2(price * mRate);
+  return { ownerFeeRate: oRate, mechanicFeeRate: mRate, ownerFee, mechanicFee, platformFee: round2(ownerFee + mechanicFee), totalCharged: round2(price + ownerFee), payout: round2(price - mechanicFee) };
+}
+
+module.exports = { getSettings, notify, audit, round2, maskLocation, computeFees, clampOwnerFee, OWNER_FEE_MIN, OWNER_FEE_MAX };

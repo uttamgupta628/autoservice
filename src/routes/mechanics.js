@@ -153,7 +153,7 @@ router.get(
     const profile = await MechanicProfile.findOne({ user: req.user._id }).select('rating reviewCount completedJobs');
     res.json({
       gross: sum(captured, 'amount'),
-      fees: sum(captured, 'platformFee'),
+      fees: Math.round(captured.reduce((a, p) => a + (p.mechanicFee ?? p.platformFee ?? 0), 0) * 100) / 100,
       net: sum(captured, 'payout'),
       refunds: sum(refunded, 'amount'),
       pendingPayout: sum(captured.filter((p) => p.payoutStatus === 'pending'), 'payout'),

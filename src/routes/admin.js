@@ -91,12 +91,33 @@ router.get(
   asyncHandler(async (req, res) => {
     const filter = {};
     if (req.query.status) filter.status = req.query.status === 'ongoing' ? { $in: ['booked', 'in_progress'] } : req.query.status;
-    let jobs = await Job.find(filter).populate('owner', 'name').populate('mechanic', 'name').populate('vehicle', 'make model year').sort('-createdAt').limit(200);
+    if (req.query.flagged) filter['classificationFlags.status'] = 'open';
+    let jobs = await Job.find(filter).populate('owner', 'name').populate('mechanic', 'name').populate('vehicle', 'make model year').populate('classificationFlags.mechanic', 'name').sort('-createdAt').limit(200);
     if (req.query.q) {
       const r = rx(req.query.q);
       jobs = jobs.filter((j) => r.test(j.category) || r.test(j.owner?.name || '') || r.test(j.mechanic?.name || '') || r.test(String(j._id)));
     }
     res.json({ jobs });
+  })
+);
+
+router.post(
+  '/jobs/:id/classification',
+  asyncHandler(async (req, res) => {
+    const diag = require('../services/diagnostics');
+    const job = await Job.findById(req.params.id);
+    if (!job?.diagnosis?.classification) throw new ApiError(400, 'This job has no symptom report');
+    if (!diag.CLASSES[req.body.classification]) throw new ApiError(400, 'Unknown classification');
+    job.diagnosis.classification = req.body.classification;
+    job.diagnosis.serviceName = diag.nameFor(job.diagnosis.symptomId, req.body.classification);
+    job.diagnosis.classificationReason = `Changed by support${req.body.note ? `: ${req.body.note}` : ''}`;
+    if (job.services?.[0]) job.services[0].name = job.diagnosis.serviceName;
+    job.classificationFlags.forEach((f) => { if (f.status === 'open') f.status = f.recommended === req.body.classification ? 'accepted' : 'dismissed'; });
+    job.history.push({ status: job.status, by: req.user._id, note: `Support set classification to ${req.body.classification}` });
+    await job.save();
+    [job.owner, job.mechanic].filter(Boolean).forEach((u) => notify(u, 'Job classification updated', `Support changed this job to ${diag.CLASSES[req.body.classification].label}`, 'booking', job._id));
+    await audit(req, 'job.classification', String(job._id), { to: req.body.classification, note: req.body.note });
+    res.json({ job });
   })
 );
 
@@ -127,11 +148,13 @@ router.get(
     const sum = (a, k) => round2(a.reduce((s, p) => s + (p[k] || 0), 0));
     const captured = all.filter((p) => p.status === 'captured');
     res.json({
-      totalRevenue: sum(captured, 'amount'),
+      totalRevenue: round2(captured.reduce((s, p) => s + (p.totalCharged || p.amount || 0), 0)),
+      ownerFees: sum(captured, 'ownerFee'),
+      mechanicFees: sum(captured, 'mechanicFee'),
       payouts: sum(captured.filter((p) => p.payoutStatus === 'settled'), 'payout'),
       pendingPayouts: sum(captured.filter((p) => p.payoutStatus === 'pending'), 'payout'),
       platformFees: sum(captured, 'platformFee'),
-      refunds: sum(all.filter((p) => p.status === 'refunded'), 'amount'),
+      refunds: round2(all.filter((p) => p.status === 'refunded').reduce((s, p) => s + (p.totalCharged || p.amount || 0), 0)),
       payments,
     });
   })
@@ -147,7 +170,7 @@ router.post(
     p.payoutStatus = 'none';
     p.refundedAt = new Date();
     await p.save();
-    notify(p.owner, 'Refund issued', `₹${p.amount} will be returned to your payment method`, 'payment', p.job);
+    notify(p.owner, 'Refund issued', `₹${p.totalCharged || p.amount} will be returned to your payment method`, 'payment', p.job);
     await audit(req, 'payment.refund', String(p._id), { amount: p.amount, reason: req.body.reason });
     res.json({ payment: p });
   })
@@ -264,7 +287,12 @@ router.put(
   '/settings',
   asyncHandler(async (req, res) => {
     const s = await getSettings();
-    const { platformFeeRate, taxRate, leadLimit } = req.body;
+    const { platformFeeRate, taxRate, leadLimit, ownerFeeRate, supplierIntegrationEnabled } = req.body;
+    if (ownerFeeRate !== undefined) {
+      if (ownerFeeRate < 0.05 || ownerFeeRate > 0.1) throw new ApiError(400, 'The owner booking fee must be between 5% and 10%');
+      s.ownerFeeRate = ownerFeeRate;
+    }
+    if (supplierIntegrationEnabled !== undefined) s.supplierIntegrationEnabled = !!supplierIntegrationEnabled;
     if (platformFeeRate !== undefined) {
       if (platformFeeRate < 0 || platformFeeRate > 0.5) throw new ApiError(400, 'Fee must be between 0% and 50%');
       s.platformFeeRate = platformFeeRate;

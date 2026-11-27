@@ -14,6 +14,7 @@ function createApp() {
   app.use(cors({ origin: origins.includes('*') ? true : origins }));
   app.use(express.json({ limit: '1mb' }));
   if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));
+
   app.get('/', (req, res) => res.json({ name: 'AutoService API', status: 'running', health: '/api/health' }));
   app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date() }));
 
@@ -26,6 +27,7 @@ function createApp() {
   app.use('/api/vehicles', vehicles);
   app.use('/api/categories', categories);
   app.use('/api/mechanics', require('./routes/mechanics'));
+  app.use('/api/diagnostics', require('./routes/diagnostics'));
   app.use('/api/jobs', require('./routes/jobs'));
   app.use('/api/messages', require('./routes/messages'));
   app.use('/api/notifications', notifications);
